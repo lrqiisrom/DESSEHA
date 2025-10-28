@@ -105,35 +105,39 @@ def OnlineAuth_DO_to_user(do, server, SK, user, IND):
         user.UsrAuth[d] = None  # sDU
 
 def OfflineAuth_A_to_B(server, A, B, IND):
+    # ① 用户级别计算（放循环外）
     aid = hmac_sha256(A.Kutilde, B.uid).hex()
     alpha = prf_scalar(A.Ku, B.uid)
     if alpha == 0:
         alpha = 1
     alpha_inv = pow(alpha, -1, n)
+    # ② 根据 A 的类型更新 ASet
+    parent_aid = A.aid if A.aid else None
+    server.add_A(aid, alpha_inv, parent_aid=parent_aid)
+
+    # ③ 对每个文档生成 offtok
     for d in IND:
         if A.UsrAuth.get(d) is None:
+            # A 是 sDU
             termA_d = prf_scalar(A.Ku, d.encode())
             termA_uB = prf_scalar(A.Ku, B.uid)
-            s_off = (termA_d * termA_uB) % n  # scalar representing offtok = s_off * G
-            server.add_A(aid, alpha_inv)
+            s_off = (termA_d * termA_uB) % n
         else:
-            # A inherited scalar s_parent stored in its UsrAuth[d][1]
             uid_parent, s_parent = A.UsrAuth[d]
             termA_uB = prf_scalar(A.Ku, B.uid)
-            s_off = (s_parent * termA_uB) % n
-            parent_aid = A.aid
-            if parent_aid:
-                server.add_A(aid, alpha_inv, parent_aid=parent_aid)
-            else:
-                server.add_A(aid, alpha_inv)
-        if A.UsrAuth.get(d) is None:
-            uid_parent = hmac_sha256(A.Kutilde, d.encode()).hex()
-        else:
-            uid_parent = A.UsrAuth[d][0]
+            s_off = (s_parent * termA_uB) % n #notice
+
+        uid_parent = (
+            hmac_sha256(A.Kutilde, d.encode()).hex()
+            if A.UsrAuth.get(d) is None
+            else A.UsrAuth[d][0]
+        )
+
         B.UsrAuth[d] = (uid_parent, s_off)
         if d in A.DocKey:
             B.DocKey[d] = A.DocKey[d]
-        B.aid = aid
+    B.aid = aid
+
 
 def Search(w, user, server):
     results = []
